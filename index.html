@@ -1,0 +1,454 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Cassette Player</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Cassette">
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@600;700&family=Playfair+Display:wght@600&family=Caveat:wght@600&display=swap">
+<style>
+/* Layout: one portrait player body filling the screen. Blue shell on the left with the cassette window, silver control strip on the right with four orange buttons. Deliberately single-look (the player's own colors), so no dark theme. */
+:root {
+  --shell: #5b7aa0;
+  --shell-dark: #3f5a7c;
+  --shell-line: #2f4866;
+  --silver: #a9b0b8;
+  --silver-hi: #c9ced4;
+  --silver-lo: #8a929c;
+  --orange: #f08a24;
+  --orange-hi: #ffad5c;
+  --orange-lo: #c76a12;
+  --tape-black: #151313;
+  --label: #fbf8f0;
+  --reel: #e6e6e6;
+  --ink: #2a2a2a;
+  --page: #1d2633;
+  --serif: "Playfair Display", Georgia, "Times New Roman", serif;
+  --round: "Fredoka", "Arial Rounded MT Bold", system-ui, sans-serif;
+  --hand: "Caveat", "Bradley Hand", cursive;
+  color-scheme: dark;
+}
+html, body { height: 100%; }
+body {
+  background: var(--page);
+  color: var(--silver);
+  display: flex; align-items: center; justify-content: center;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 12px;
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none; -webkit-user-select: none;
+}
+.player {
+  height: 100%;
+  max-height: 912px;
+  aspect-ratio: 420 / 912;   /* iPhone Air portrait proportion */
+  max-width: 100%;
+  display: grid;
+  grid-template-columns: 1fr 22%;
+  border-radius: 28px;
+  overflow: hidden;
+  box-shadow: 0 20px 50px rgb(0 0 0 / .45);
+}
+.shell {
+  background: linear-gradient(180deg, var(--shell) 0%, #5676a0 60%, var(--shell-dark) 100%);
+  border-right: 2px solid var(--shell-line);
+  position: relative;
+  display: grid;
+  grid-template-rows: 7% auto 1fr auto;
+  container-type: size;
+  overflow: hidden;
+}
+.shell::before { /* the seam line near the top, as in the mockup */
+  content: ""; position: absolute; left: 0; right: 0; top: 7%;
+  border-top: 1.5px solid var(--shell-line);
+  box-shadow: 0 1px 0 rgb(255 255 255 / .12);
+}
+.brand {
+  font-family: var(--serif);
+  font-size: 11cqw;
+  letter-spacing: .04em;
+  color: var(--silver-hi);
+  text-shadow: 0 1px 0 rgb(0 0 0 / .35), 0 -1px 0 rgb(255 255 255 / .25);
+  margin: 4cqh 0 0 8cqw;
+}
+.bay { position: relative; display: flex; align-items: center; }
+.cassette {
+  margin-left: 14cqw;
+  width: 46cqw; height: 52cqh; max-height: 100%;
+  display: grid; grid-template-columns: 30% 70%;
+  border-radius: 2px;
+  box-shadow: 0 6px 14px rgb(0 0 0 / .35);
+  transition: transform .5s cubic-bezier(.3,.7,.3,1);
+}
+.cassette { cursor: pointer; }
+.cassette:focus-visible { outline: 3px solid #fff; outline-offset: 4px; }
+.cassette.empty .body { opacity: .35; }
+.cassette.out { transform: translateX(-130%) rotate(-6deg); }
+.label {
+  background: var(--label);
+  border-right: 1px solid #ddd6c6;
+  position: relative;
+  display: flex; align-items: center; justify-content: center;
+}
+.label::before { content: ""; position: absolute; top: 0; bottom: 0; left: 42%; border-left: 1px solid #d9d2c2; }
+.label { gap: 3cqw; flex-direction: row-reverse; }
+.label small {
+  writing-mode: vertical-rl;
+  font-family: system-ui, sans-serif;
+  font-size: 3.4cqw;
+  color: #555;
+  white-space: nowrap; overflow: hidden; max-height: 92%; text-overflow: ellipsis;
+  position: relative;
+}
+.label span {
+  writing-mode: vertical-rl;
+  font-family: var(--hand);
+  font-size: 6.5cqw;
+  color: #3b4e8a;
+  white-space: nowrap;
+}
+.body {
+  background: var(--tape-black);
+  display: grid; grid-template-rows: 1fr auto 1fr;
+  justify-items: center; align-items: center;
+  padding: 8% 0;
+}
+.reel {
+  width: 70%; aspect-ratio: 1; border-radius: 50%;
+  background: radial-gradient(circle, #fff 0 18%, var(--reel) 19% 100%);
+  box-shadow: inset 0 0 0 3px #cfcfcf;
+  position: relative;
+}
+.reel i {
+  position: absolute; inset: 0; margin: auto;
+  width: 12%; height: 22%; background: #bdbdbd; border-radius: 2px;
+}
+.reel i:nth-child(1) { transform: rotate(0deg) translateY(-140%); }
+.reel i:nth-child(2) { transform: rotate(60deg) translateY(-140%); }
+.reel i:nth-child(3) { transform: rotate(120deg) translateY(-140%); }
+.reel i:nth-child(4) { transform: rotate(180deg) translateY(-140%); }
+.reel i:nth-child(5) { transform: rotate(240deg) translateY(-140%); }
+.reel i:nth-child(6) { transform: rotate(300deg) translateY(-140%); }
+.window {
+  width: 46%; height: 9cqh;
+  background: linear-gradient(90deg, #2e2626, #3a3030);
+  border-radius: 2px; position: relative; overflow: hidden;
+}
+.window::before { /* visible tape */
+  content: ""; position: absolute; left: 0; right: 0; top: 14%; height: 34%;
+  background: #eee; border-radius: 0 0 50% 50% / 0 0 100% 100%;
+}
+.window::after { /* tick marks */
+  content: ""; position: absolute; left: 50%; top: 8%; bottom: 8%; width: 1px;
+  background: repeating-linear-gradient(180deg, #888 0 1px, transparent 1px 8px);
+  box-shadow: -3px 0 0 transparent;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.playing .reel { animation: spin 2.4s linear infinite; }
+.ffwd .reel { animation: spin .35s linear infinite; }
+.rew .reel { animation: spin .35s linear infinite reverse; }
+
+.door {
+  position: absolute; right: 0; top: 50%; transform: translateY(-50%);
+  width: 24cqw; height: 22cqh;
+  background: linear-gradient(90deg, rgb(255 255 255 / .02), rgb(255 255 255 / .07));
+  display: grid; place-items: center;
+}
+.door svg { width: 45%; }
+.cassette.out ~ .door svg { transform: rotate(-90deg); transition: transform .3s; }
+
+.wordmark {
+  font-family: var(--round);
+  font-weight: 700;
+  font-size: 13cqw;
+  letter-spacing: .01em;
+  color: var(--silver);
+  text-shadow: 0 1px 0 rgb(255 255 255 / .2), 0 -1px 0 rgb(0 0 0 / .3);
+  margin: 0 0 6cqh 8cqw;
+}
+
+.strip {
+  background: linear-gradient(90deg, var(--silver-lo) 0%, var(--silver-hi) 35%, var(--silver) 70%, var(--silver-lo) 100%);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 4.5%;
+  container-type: inline-size;
+}
+.btn {
+  appearance: none; border: 0; padding: 0; cursor: pointer;
+  width: 68cqw; aspect-ratio: 1; border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, var(--orange-hi), var(--orange) 55%, var(--orange-lo));
+  box-shadow: 0 4px 0 var(--orange-lo), 0 6px 10px rgb(0 0 0 / .3), inset 0 1px 0 rgb(255 255 255 / .4);
+  display: grid; place-items: center;
+  transition: transform .08s, box-shadow .08s;
+  touch-action: manipulation;
+}
+.btn svg { width: 42%; fill: #fff4e6; filter: drop-shadow(0 1px 0 rgb(0 0 0 / .25)); }
+.btn.metal {
+  background: radial-gradient(circle at 35% 30%, #eef0f2, var(--silver-hi) 55%, var(--silver-lo));
+  box-shadow: 0 4px 0 #6f7781, 0 6px 10px rgb(0 0 0 / .3), inset 0 1px 0 rgb(255 255 255 / .7);
+}
+.btn.metal svg { fill: #4a525c; filter: drop-shadow(0 1px 0 rgb(255 255 255 / .5)); }
+.btn.metal:active, .btn.metal.down { box-shadow: 0 1px 0 #6f7781, 0 2px 4px rgb(0 0 0 / .3), inset 0 1px 0 rgb(255 255 255 / .5); }
+.btn:active, .btn.down { transform: translateY(3px); box-shadow: 0 1px 0 var(--orange-lo), 0 2px 4px rgb(0 0 0 / .3), inset 0 1px 0 rgb(255 255 255 / .3); }
+.btn:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
+.btn .pause { display: none; }
+.playing-btn .play { display: none; }
+.playing-btn .pause { display: block; }
+.status {
+  position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0);
+}
+@media (prefers-reduced-motion: reduce) {
+  .playing .reel, .ffwd .reel, .rew .reel { animation-duration: 6s; }
+  .cassette { transition: none; }
+}
+.sheet {
+  position: fixed; inset: 0; z-index: 20;
+  background: rgb(10 14 20 / .7);
+  display: flex; align-items: flex-end; justify-content: center;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.sheet[hidden] { display: none; }
+.panel {
+  width: min(420px, 100%); max-height: 80%; overflow: auto;
+  background: #222b38; color: #e8edf3;
+  border-radius: 18px 18px 0 0;
+  padding: 20px 18px calc(20px + env(safe-area-inset-bottom, 0px));
+  font: 16px/1.4 system-ui, -apple-system, sans-serif;
+  display: grid; gap: 14px;
+}
+.panel h2 { margin: 0; font-size: 18px; }
+.panel label { font-size: 14px; color: var(--silver-hi); }
+.panel input[type=text] { font: inherit; padding: 11px 12px; border-radius: 10px; border: 1px solid #4a5566; background: #161d27; color: #fff; width: 100%; box-sizing: border-box; }
+.panel .row { display: flex; gap: 10px; }
+.panel button { font: inherit; padding: 12px 14px; border: 0; border-radius: 10px; cursor: pointer; }
+.primary { background: var(--orange); color: #fff; font-weight: 600; flex: 1; }
+.ghost { background: #333e4d; color: #e8edf3; }
+.tapes { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.tapes li { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: #2b3545; border-radius: 10px; }
+.tapes li.current { box-shadow: inset 0 0 0 2px var(--orange); }
+.tapes .t { flex: 1; min-width: 0; }
+.tapes .t b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tapes .t small { color: #9aa6b5; }
+.tapes button { padding: 6px 10px; font-size: 14px; background: #3a4556; color: #ffb38a; }
+.hint { margin: 0; font-size: 13px; color: #9aa6b5; }
+</style>
+
+<main class="player" aria-label="Cassette player">
+  <section class="shell">
+    <div></div>
+    <div class="brand">CASSETTE</div>
+    <div class="bay">
+      <div class="cassette" id="cassette" role="button" tabindex="0" aria-label="Manage tapes">
+        <div class="label"><span id="tape-name">No tape</span><small id="track-name">Tap to add songs</small></div>
+        <div class="body">
+          <div class="reel"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+          <div class="window"></div>
+          <div class="reel"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+        </div>
+      </div>
+      <div class="door" aria-hidden="true">
+        <svg viewBox="0 0 40 60" fill="none" stroke="#e4ecf6" stroke-width="2.2" stroke-linejoin="round">
+          <path d="M20 4 L36 24 H27 V56 H13 V24 H4 Z" fill="rgb(255 255 255 / .06)"/>
+        </svg>
+      </div>
+    </div>
+    <div class="wordmark">STEREO</div>
+  </section>
+
+  <section class="strip" aria-label="Controls">
+    <button class="btn metal" id="play" aria-label="Play">
+      <svg class="play" viewBox="0 0 24 24"><path d="M7 4.5v15l12-7.5z"/></svg>
+      <svg class="pause" viewBox="0 0 24 24"><path d="M6 4h4.5v16H6zM13.5 4H18v16h-4.5z"/></svg>
+    </button>
+    <button class="btn metal" id="fwd" aria-label="Next song">
+      <svg viewBox="0 0 24 24"><path d="M2 5v14l10-7zM12 5v14l10-7z"/></svg>
+    </button>
+    <button class="btn metal" id="rew" aria-label="Previous song">
+      <svg viewBox="0 0 24 24"><path d="M22 5v14l-10-7zM12 5v14L2 12z"/></svg>
+    </button>
+    <button class="btn" id="eject" aria-label="Change tape (next playlist)">
+      <svg viewBox="0 0 24 24"><path d="M12 4l9 10H3zM3 17h18v3H3z"/></svg>
+    </button>
+  </section>
+  <p class="status" id="status" aria-live="polite">Stopped</p>
+</main>
+
+<audio id="audio" preload="auto" playsinline></audio>
+
+<div class="sheet" id="sheet" hidden>
+  <div class="panel" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
+    <h2 id="sheet-title">Your tapes</h2>
+    <ul class="tapes" id="tape-list"></ul>
+    <label for="new-name">New tape name</label>
+    <input id="new-name" type="text" placeholder="e.g. Night drive" autocomplete="off">
+    <input id="files" type="file" accept="audio/*,.mp3,.m4a,.aac,.wav,.flac" multiple hidden>
+    <div class="row">
+      <button class="primary" id="pick">Choose songs</button>
+      <button class="ghost" id="close">Close</button>
+    </div>
+    <p class="hint">Songs are saved on this phone only. Pick several files at once to make one tape. Songs play in file-name order.</p>
+  </div>
+</div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const cassette = $('cassette'), play = $('play'), status = $('status'), audio = $('audio');
+  const tapeName = $('tape-name'), trackName = $('track-name');
+  let tapes = [], tape = 0, track = 0, busy = false, url = null;
+
+  /* ---------- storage: tapes live in IndexedDB on this device ---------- */
+  let dbp = null;
+  function db() {
+    return dbp ||= new Promise((res, rej) => {
+      const r = indexedDB.open('cassette', 1);
+      r.onupgradeneeded = () => r.result.createObjectStore('tapes', { keyPath: 'id' });
+      r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+    });
+  }
+  async function store(mode, fn) {
+    const d = await db();
+    return new Promise((res, rej) => {
+      const tx = d.transaction('tapes', mode), st = tx.objectStore('tapes');
+      const r = fn(st); tx.oncomplete = () => res(r && r.result); tx.onerror = () => rej(tx.error);
+    });
+  }
+  const loadAll = () => store('readonly', s => s.getAll());
+  const save = t => store('readwrite', s => s.put(t));
+  const remove = id => store('readwrite', s => s.delete(id));
+
+  /* ---------- player ---------- */
+  const cur = () => tapes[tape] && tapes[tape].tracks[track];
+  function render() {
+    const t = tapes[tape], s = cur();
+    cassette.classList.toggle('empty', !t);
+    tapeName.textContent = t ? t.name : 'No tape';
+    trackName.textContent = s ? (track + 1) + ' · ' + s.name : 'Tap to add songs';
+    status.textContent = s ? (audio.paused ? 'Paused ' : 'Playing ') + s.name : 'No tape loaded';
+  }
+  function show(playing) {
+    cassette.classList.toggle('playing', playing);
+    play.classList.toggle('playing-btn', playing);
+    play.setAttribute('aria-label', playing ? 'Pause' : 'Play');
+    render();
+  }
+  function cue(autoplay) {
+    const s = cur();
+    if (url) { URL.revokeObjectURL(url); url = null; }
+    if (!s) { audio.removeAttribute('src'); audio.load(); show(false); return; }
+    url = URL.createObjectURL(s.blob);
+    audio.src = url;
+    if ('mediaSession' in navigator) {
+      navigator.mediaSession.metadata = new MediaMetadata({ title: s.name, album: tapes[tape].name, artist: 'Cassette' });
+    }
+    if (autoplay) audio.play().catch(() => show(false)); else show(false);
+    render();
+  }
+  function whirr(cls) { cassette.classList.add(cls); setTimeout(() => cassette.classList.remove(cls), 450); }
+  function step(dir, cls) {
+    const t = tapes[tape]; if (!t || busy) return;
+    const playing = !audio.paused;
+    track = (track + dir + t.tracks.length) % t.tracks.length;
+    whirr(cls); cue(playing);
+  }
+  const next = () => step(1, 'ffwd'), prev = () => step(-1, 'rew');
+  function toggle() {
+    if (busy) return;
+    if (!cur()) return openSheet();
+    audio.paused ? audio.play().catch(() => {}) : audio.pause();
+  }
+
+  audio.addEventListener('play', () => show(true));
+  audio.addEventListener('pause', () => show(false));
+  audio.addEventListener('ended', () => {
+    const t = tapes[tape];
+    if (track < t.tracks.length - 1) { track++; cue(true); }
+    else { track = 0; cue(false); }  // end of side: stop and rewind, like a real tape
+  });
+  if ('mediaSession' in navigator) {  // lock screen and Control Center buttons
+    const ms = navigator.mediaSession;
+    ms.setActionHandler('play', toggle); ms.setActionHandler('pause', toggle);
+    ms.setActionHandler('nexttrack', next); ms.setActionHandler('previoustrack', prev);
+  }
+
+  play.addEventListener('click', toggle);
+  $('fwd').addEventListener('click', next);
+  $('rew').addEventListener('click', prev);
+  $('eject').addEventListener('click', async () => {
+    if (busy) return;
+    if (tapes.length < 2) { if (!tapes.length) openSheet(); return; }
+    busy = true;
+    const wasPlaying = !audio.paused;
+    audio.pause();
+    cassette.classList.add('out');
+    await new Promise(r => setTimeout(r, 550));
+    tape = (tape + 1) % tapes.length; track = 0;
+    cue(false);
+    cassette.classList.remove('out');
+    await new Promise(r => setTimeout(r, 500));
+    busy = false;
+    if (wasPlaying) audio.play().catch(() => {});
+  });
+
+  /* ---------- tape manager sheet ---------- */
+  function openSheet() { renderList(); $('sheet').hidden = false; }
+  function closeSheet() { $('sheet').hidden = true; }
+  cassette.addEventListener('click', () => { if (!busy) openSheet(); });
+  cassette.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openSheet(); } });
+  $('close').addEventListener('click', closeSheet);
+  $('sheet').addEventListener('click', e => { if (e.target === $('sheet')) closeSheet(); });
+  $('pick').addEventListener('click', () => $('files').click());
+
+  function renderList() {
+    const ul = $('tape-list'); ul.textContent = '';
+    if (!tapes.length) { const li = document.createElement('li'); li.textContent = 'No tapes yet. Choose songs to make your first one.'; ul.append(li); return; }
+    tapes.forEach((t, i) => {
+      const li = document.createElement('li'); if (i === tape) li.className = 'current';
+      const d = document.createElement('div'); d.className = 't';
+      const b = document.createElement('b'); b.textContent = t.name;
+      const sm = document.createElement('small'); sm.textContent = t.tracks.length + ' songs';
+      d.append(b, sm);
+      const del = document.createElement('button'); del.textContent = 'Remove';
+      del.setAttribute('aria-label', 'Remove ' + t.name);
+      del.addEventListener('click', async () => {
+        if (del.dataset.armed !== '1') { del.dataset.armed = '1'; del.textContent = 'Tap again'; return; }
+        await remove(t.id);
+        tapes.splice(i, 1);
+        if (tape >= tapes.length) tape = 0;
+        if (i <= tape) { track = 0; audio.pause(); cue(false); }
+        renderList();
+      });
+      li.append(d, del); ul.append(li);
+    });
+  }
+
+  $('files').addEventListener('change', async e => {
+    const files = [...e.target.files].filter(f => f.type.startsWith('audio/') || /\.(mp3|m4a|aac|wav|flac|ogg)$/i.test(f.name));
+    e.target.value = '';
+    if (!files.length) return;
+    files.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+    const t = {
+      id: Date.now().toString(36),
+      name: $('new-name').value.trim() || 'Tape ' + (tapes.length + 1),
+      created: Date.now(),
+      tracks: files.map(f => ({ name: f.name.replace(/\.[^.]+$/, ''), blob: f })),
+    };
+    try { await save(t); } catch (err) { $('sheet-title').textContent = 'Could not save. The phone may be out of space.'; return; }
+    tapes.push(t); $('new-name').value = '';
+    tape = tapes.length - 1; track = 0; audio.pause(); cue(false);
+    renderList();
+  });
+
+  /* ---------- start ---------- */
+  (async () => {
+    try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch {}
+    try { tapes = (await loadAll()).sort((a, b) => a.created - b.created); } catch { tapes = []; }
+    cue(false);
+  })();
+})();
+</script>
