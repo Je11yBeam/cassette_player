@@ -277,6 +277,15 @@ body {
 .tapes .t b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tapes .t small { color: #9aa6b5; }
 .tapes button { padding: 6px 10px; font-size: 14px; background: #3a4556; color: #ffb38a; }
+.sp-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: #1f3328; border-radius: 10px; }
+.sp-row .t { flex: 1; min-width: 0; }
+.sp-row .t b { display: block; }
+.sp-row .t small { color: #9fc9ad; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-btn { background: #1ed760; color: #08210f; font-weight: 600; }
+.sp-btn.off { background: #3a4556; color: #e8edf3; font-weight: 400; }
+.sp-btn[hidden] { display: none; }
+.tapes small.sp { color: #6fdc95; }
+.note a { color: #fff; font-weight: 600; }
 .note { margin: 0; padding: 10px 12px; border-radius: 10px; background: rgb(240 138 36 / .15); color: #ffc58a; font-size: 14px; }
 .note[hidden] { display: none; }
 .hint { margin: 0; font-size: 13px; color: #9aa6b5; }
@@ -333,6 +342,10 @@ body {
   <div class="panel" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
     <h2 id="sheet-title">Your tapes</h2>
     <p class="note" id="sheet-note" hidden></p>
+    <div class="sp-row">
+      <div class="t"><b>Spotify</b><small id="sp-status">Not connected</small></div>
+      <button class="sp-btn" id="sp-connect">Connect</button>
+    </div>
     <ul class="tapes" id="tape-list"></ul>
     <label for="new-name">New tape name</label>
     <input id="new-name" type="text" placeholder="e.g. Night drive" autocomplete="off">
@@ -346,13 +359,21 @@ body {
 </div>
 
 <script>
+/* Spotify app Client ID from developer.spotify.com/dashboard. It is not a secret. */
+const SPOTIFY_CLIENT_ID = '';
+
 (() => {
   const $ = id => document.getElementById(id);
   const cassette = $('cassette'), play = $('play'), status = $('status'), audio = $('audio');
   const tapeName = $('tape-name'), trackName = $('track-name');
-  let tapes = [], tape = 0, track = 0, busy = false, url = null;
+  let localTapes = [], spTapes = [], tapes = [], tape = 0, track = 0, busy = false, url = null;
+  const ls = {
+    get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
+    set(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+  };
+  const wait = ms => new Promise(r => setTimeout(r, ms));
 
-  /* ---------- storage: tapes live in IndexedDB on this device ---------- */
+  /* ---------- storage: my own song files live in IndexedDB on this device ---------- */
   let dbp = null;
   function db() {
     return dbp ||= new Promise((res, rej) => {
@@ -372,13 +393,145 @@ body {
   const save = t => store('readwrite', s => s.put(t));
   const remove = id => store('readwrite', s => s.delete(id));
 
+  /* ---------- Spotify: sign in (PKCE, no server) ---------- */
+  const SP_SCOPES = 'user-read-playback-state user-modify-playback-state user-read-currently-playing playlist-read-private playlist-read-collaborative';
+  const redirectUri = location.origin + location.pathname;
+  const b64url = buf => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  async function spLogin() {
+    const verifier = b64url(crypto.getRandomValues(new Uint8Array(48)));
+    const challenge = b64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
+    const state = b64url(crypto.getRandomValues(new Uint8Array(12)));
+    ls.set('sp-pkce', { verifier, state });
+    location.href = 'https://accounts.spotify.com/authorize?' + new URLSearchParams({
+      response_type: 'code', client_id: SPOTIFY_CLIENT_ID, scope: SP_SCOPES,
+      code_challenge_method: 'S256', code_challenge: challenge, redirect_uri: redirectUri, state,
+    });
+  }
+  async function spTokenRequest(params) {
+    const r = await fetch('https://accounts.spotify.com/api/token', {
+      method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ client_id: SPOTIFY_CLIENT_ID, ...params }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error_description || j.error || 'Spotify sign-in failed');
+    const old = ls.get('sp-token') || {};
+    const tok = { access: j.access_token, refresh: j.refresh_token || old.refresh, exp: Date.now() + j.expires_in * 1000 };
+    ls.set('sp-token', tok);
+    return tok;
+  }
+  async function spHandleRedirect() {
+    const q = new URLSearchParams(location.search);
+    if (!q.has('code') && !q.has('error')) return;
+    history.replaceState(null, '', location.pathname);
+    const pk = ls.get('sp-pkce'); ls.set('sp-pkce', null);
+    if (q.get('error')) throw new Error('Spotify sign-in was cancelled');
+    if (!pk || pk.state !== q.get('state')) throw new Error('Sign-in got lost on the way back. Tap Connect again.');
+    await spTokenRequest({ grant_type: 'authorization_code', code: q.get('code'), redirect_uri: redirectUri, code_verifier: pk.verifier });
+    return true;
+  }
+  async function spAccess() {
+    const t = ls.get('sp-token');
+    if (!t) return null;
+    if (t.exp - Date.now() > 60000) return t.access;
+    try { return (await spTokenRequest({ grant_type: 'refresh_token', refresh_token: t.refresh })).access; }
+    catch { ls.set('sp-token', null); return null; }
+  }
+  const spConnected = () => !!ls.get('sp-token');
+  async function spApi(path, opts = {}, retried) {
+    const access = await spAccess();
+    if (!access) throw Object.assign(new Error('Not connected to Spotify'), { code: 'AUTH' });
+    const r = await fetch('https://api.spotify.com/v1' + path, {
+      ...opts, headers: { Authorization: 'Bearer ' + access, ...(opts.body ? { 'Content-Type': 'application/json' } : {}) },
+    });
+    if (r.status === 401 && !retried) { const t = ls.get('sp-token'); if (t) ls.set('sp-token', { ...t, exp: 0 }); return spApi(path, opts, true); }
+    if (r.status === 204 || r.status === 202) return null;
+    const j = await r.json().catch(() => null);
+    if (!r.ok) {
+      const reason = j && j.error && (j.error.reason || j.error.message);
+      throw Object.assign(new Error(reason || 'Spotify error ' + r.status), { code: r.status === 404 && /device/i.test(reason || '') ? 'NO_DEVICE' : r.status });
+    }
+    return j;
+  }
+
+  /* ---------- Spotify: playlists become tapes, the Spotify app plays them ---------- */
+  const sp = { playing: false, title: '', artist: '', context: null, device: null };
+  async function spLoadTapes() {
+    const out = [];
+    let path = '/me/playlists?limit=50';
+    for (let page = 0; path && page < 4; page++) {
+      const j = await spApi(path);
+      for (const pl of j.items || []) if (pl) out.push({ kind: 'spotify', id: pl.id, name: pl.name, uri: pl.uri, total: pl.tracks ? pl.tracks.total : 0 });
+      path = j.next ? j.next.replace('https://api.spotify.com/v1', '') : null;
+    }
+    ls.set('sp-tapes', out);
+    return out;
+  }
+  async function spDevice() {  // the phone's Spotify app (or whatever device is active)
+    const j = await spApi('/me/player/devices');
+    const list = (j && j.devices) || [];
+    const d = list.find(x => x.is_active) || list.find(x => x.type === 'Smartphone') || list[0];
+    if (!d) throw Object.assign(new Error('Open the Spotify app first'), { code: 'NO_DEVICE' });
+    return d.id;
+  }
+  async function spPlay(t, fromStart) {
+    const device = await spDevice();
+    const same = sp.context === t.uri && !fromStart;
+    await spApi('/me/player/play?device_id=' + encodeURIComponent(device), {
+      method: 'PUT', body: same ? undefined : JSON.stringify({ context_uri: t.uri, offset: { position: 0 } }),
+    });
+    sp.playing = true; sp.context = t.uri;
+    show(true); spPollSoon();
+  }
+  async function spPause() { await spApi('/me/player/pause', { method: 'PUT' }); sp.playing = false; show(false); }
+  async function spSkip(dir) { await spApi('/me/player/' + (dir > 0 ? 'next' : 'previous'), { method: 'POST' }); spPollSoon(); }
+  async function spRefresh() {
+    const j = await spApi('/me/player/currently-playing');
+    if (!j || !j.item) { sp.playing = false; sp.title = ''; sp.artist = ''; }
+    else {
+      sp.playing = !!j.is_playing;
+      sp.title = j.item.name;
+      sp.artist = (j.item.artists || []).map(a => a.name).join(', ');
+      sp.context = j.context ? j.context.uri : null;
+    }
+    if (isSp()) show(sp.playing);
+  }
+  let pollTimer = null;
+  function spPollSoon() { clearTimeout(pollTimer); pollTimer = setTimeout(spPoll, 700); }
+  async function spPoll() {
+    clearTimeout(pollTimer);
+    if (isSp() && spConnected() && !document.hidden) { try { await spRefresh(); } catch {} }
+    pollTimer = setTimeout(spPoll, 4000);
+  }
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) spPollSoon(); });
+  function spError(e) {
+    if (e.code === 'NO_DEVICE') {
+      setTitle('Open the Spotify app first');
+      openSheet('Spotify needs to be open on this phone to play. <a href="https://open.spotify.com/">Open Spotify</a>, then come back and press play.', true);
+    } else if (e.code === 'AUTH') {
+      openSheet('Connect Spotify again to play this tape.');
+    } else if (e.code === 403) {
+      openSheet('Spotify said no: ' + e.message + '. Playback control needs Spotify Premium.');
+    } else {
+      setTitle(e.message);
+    }
+  }
+
   /* ---------- player ---------- */
-  const cur = () => tapes[tape] && tapes[tape].tracks[track];
+  const isSp = () => !!(tapes[tape] && tapes[tape].kind === 'spotify');
+  const cur = () => !isSp() && tapes[tape] && tapes[tape].tracks[track];
+  const isPlaying = () => isSp() ? sp.playing : !audio.paused;
+  function rebuild() { tapes = [...localTapes, ...spTapes]; if (tape >= tapes.length) tape = 0; }
   function render() {
     const t = tapes[tape], s = cur();
     cassette.classList.toggle('empty', !t);
     tapeName.textContent = t ? t.name : 'No tape';
     $('lcd-tape').textContent = t ? t.name : 'No tape';
+    if (isSp()) {
+      $('lcd-count').textContent = 'SPOTIFY';
+      setTitle(sp.context === t.uri && sp.title ? sp.title + (sp.artist ? ' · ' + sp.artist : '') : 'Press play');
+      status.textContent = (sp.playing ? 'Playing ' : 'Paused ') + t.name + ' on Spotify';
+      return;
+    }
     $('lcd-count').textContent = t ? (track + 1) + '/' + t.tracks.length : '';
     setTitle(s ? s.name : 'Tap the tape to add songs');
     status.textContent = s ? (audio.paused ? 'Paused ' : 'Playing ') + s.name : 'No tape loaded';
@@ -407,7 +560,7 @@ body {
   function cue(autoplay) {
     const s = cur();
     if (url) { URL.revokeObjectURL(url); url = null; }
-    if (!s) { audio.removeAttribute('src'); audio.load(); show(false); return; }
+    if (!s) { audio.removeAttribute('src'); audio.load(); show(isSp() && sp.playing && sp.context === tapes[tape].uri); return; }
     url = URL.createObjectURL(s.blob);
     audio.src = url;
     if ('mediaSession' in navigator) {
@@ -419,25 +572,28 @@ body {
   function whirr(cls) { cassette.classList.add(cls); setTimeout(() => cassette.classList.remove(cls), 450); }
   function step(dir, cls) {
     const t = tapes[tape]; if (!t || busy) return;
+    whirr(cls);
+    if (isSp()) { spSkip(dir).catch(spError); return; }
     const playing = !audio.paused;
     track = (track + dir + t.tracks.length) % t.tracks.length;
-    whirr(cls); cue(playing);
+    cue(playing);
   }
   const next = () => step(1, 'ffwd'), prev = () => step(-1, 'rew');
   function toggle() {
     if (busy) return;
-    if (!cur()) return openSheet();
+    if (!tapes[tape]) return openSheet();
+    if (isSp()) { (sp.playing ? spPause() : spPlay(tapes[tape])).catch(spError); return; }
     audio.paused ? audio.play().catch(() => {}) : audio.pause();
   }
 
   audio.addEventListener('play', () => show(true));
-  audio.addEventListener('pause', () => show(false));
+  audio.addEventListener('pause', () => { if (!isSp()) show(false); });
   audio.addEventListener('ended', () => {
     const t = tapes[tape];
     if (track < t.tracks.length - 1) { track++; cue(true); }
     else { track = 0; cue(false); }  // end of side: stop and rewind, like a real tape
   });
-  if ('mediaSession' in navigator) {  // lock screen and Control Center buttons
+  if ('mediaSession' in navigator) {  // lock screen and Control Center buttons (own files)
     const ms = navigator.mediaSession;
     ms.setActionHandler('play', toggle); ms.setActionHandler('pause', toggle);
     ms.setActionHandler('nexttrack', next); ms.setActionHandler('previoustrack', prev);
@@ -450,13 +606,13 @@ body {
     if (busy) return;
     if (!tapes.length) { openSheet(); return; }
     busy = true;
-    const wasPlaying = !audio.paused;
+    const wasPlaying = isPlaying(), wasSp = isSp();
     audio.pause();
     cassette.classList.add('out');
-    await new Promise(r => setTimeout(r, 550));
+    await wait(550);
     if (tapes.length < 2) {  // only one tape: put it back and offer to add another
       cassette.classList.remove('out');
-      await new Promise(r => setTimeout(r, 500));
+      await wait(500);
       busy = false;
       openSheet('Add another tape so eject can switch between them.');
       return;
@@ -464,16 +620,20 @@ body {
     tape = (tape + 1) % tapes.length; track = 0;
     cue(false);
     cassette.classList.remove('out');
-    await new Promise(r => setTimeout(r, 500));
+    await wait(500);
     busy = false;
-    if (wasPlaying) audio.play().catch(() => {});
+    if (wasPlaying) {
+      if (isSp()) spPlay(tapes[tape], true).catch(spError);
+      else { if (wasSp) spPause().catch(() => {}); audio.play().catch(() => {}); }
+    }
   });
 
   /* ---------- tape manager sheet ---------- */
-  function openSheet(note) {
+  function openSheet(note, html) {
     renderList();
-    $('sheet-note').textContent = note || '';
-    $('sheet-note').hidden = !note;
+    const n = $('sheet-note');
+    html ? (n.innerHTML = note || '') : (n.textContent = note || '');
+    n.hidden = !note;
     $('sheet').hidden = false;
   }
   function closeSheet() { $('sheet').hidden = true; }
@@ -483,26 +643,52 @@ body {
   $('sheet').addEventListener('click', e => { if (e.target === $('sheet')) closeSheet(); });
   $('pick').addEventListener('click', () => $('files').click());
 
+  function renderSp() {
+    const btn = $('sp-connect'), st = $('sp-status');
+    if (!SPOTIFY_CLIENT_ID) { st.textContent = 'Not set up yet'; btn.hidden = true; return; }
+    btn.hidden = false;
+    if (spConnected()) { st.textContent = 'Connected · ' + spTapes.length + ' playlists'; btn.textContent = 'Disconnect'; btn.classList.add('off'); }
+    else { st.textContent = 'Play your playlists through the Spotify app'; btn.textContent = 'Connect'; btn.classList.remove('off'); }
+  }
+  $('sp-connect').addEventListener('click', async () => {
+    if (!spConnected()) return spLogin();
+    const btn = $('sp-connect');
+    if (btn.dataset.armed !== '1') { btn.dataset.armed = '1'; btn.textContent = 'Tap again'; return; }
+    btn.dataset.armed = '';
+    ls.set('sp-token', null); ls.set('sp-tapes', null);
+    spTapes = []; sp.playing = false; rebuild(); cue(false); renderList();
+  });
+
   function renderList() {
+    renderSp();
     const ul = $('tape-list'); ul.textContent = '';
-    if (!tapes.length) { const li = document.createElement('li'); li.textContent = 'No tapes yet. Choose songs to make your first one.'; ul.append(li); return; }
+    if (!tapes.length) { const li = document.createElement('li'); li.textContent = 'No tapes yet. Choose songs or connect Spotify to make your first one.'; ul.append(li); return; }
     tapes.forEach((t, i) => {
       const li = document.createElement('li'); if (i === tape) li.className = 'current';
       const d = document.createElement('div'); d.className = 't';
       const b = document.createElement('b'); b.textContent = t.name;
-      const sm = document.createElement('small'); sm.textContent = t.tracks.length + ' songs';
+      const sm = document.createElement('small');
+      if (t.kind === 'spotify') { sm.className = 'sp'; sm.textContent = 'Spotify · ' + t.total + ' songs'; }
+      else sm.textContent = t.tracks.length + ' songs';
       d.append(b, sm);
-      const del = document.createElement('button'); del.textContent = 'Remove';
-      del.setAttribute('aria-label', 'Remove ' + t.name);
-      del.addEventListener('click', async () => {
-        if (del.dataset.armed !== '1') { del.dataset.armed = '1'; del.textContent = 'Tap again'; return; }
-        await remove(t.id);
-        tapes.splice(i, 1);
-        if (tape >= tapes.length) tape = 0;
-        if (i <= tape) { track = 0; audio.pause(); cue(false); }
-        renderList();
-      });
-      li.append(d, del); ul.append(li);
+      d.style.cursor = 'pointer';
+      d.addEventListener('click', () => { if (busy) return; if (isSp() && sp.playing) spPause().catch(() => {}); audio.pause(); tape = i; track = 0; cue(false); closeSheet(); });
+      li.append(d);
+      if (t.kind !== 'spotify') {
+        const del = document.createElement('button'); del.textContent = 'Remove';
+        del.setAttribute('aria-label', 'Remove ' + t.name);
+        del.addEventListener('click', async () => {
+          if (del.dataset.armed !== '1') { del.dataset.armed = '1'; del.textContent = 'Tap again'; return; }
+          await remove(t.id);
+          localTapes = localTapes.filter(x => x.id !== t.id);
+          const removingCurrent = i === tape;
+          rebuild();
+          if (removingCurrent) { tape = 0; track = 0; audio.pause(); cue(false); } else if (i < tape) tape--;
+          renderList();
+        });
+        li.append(del);
+      }
+      ul.append(li);
     });
   }
 
@@ -513,21 +699,34 @@ body {
     files.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
     const t = {
       id: Date.now().toString(36),
-      name: $('new-name').value.trim() || 'Tape ' + (tapes.length + 1),
+      name: $('new-name').value.trim() || 'Tape ' + (localTapes.length + 1),
       created: Date.now(),
       tracks: files.map(f => ({ name: f.name.replace(/\.[^.]+$/, ''), blob: f })),
     };
     try { await save(t); } catch (err) { $('sheet-title').textContent = 'Could not save. The phone may be out of space.'; return; }
-    tapes.push(t); $('new-name').value = '';
-    tape = tapes.length - 1; track = 0; audio.pause(); cue(false);
+    localTapes.push(t); $('new-name').value = '';
+    rebuild();
+    tape = localTapes.length - 1; track = 0; audio.pause(); cue(false);
     renderList();
   });
 
   /* ---------- start ---------- */
   (async () => {
     try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch {}
-    try { tapes = (await loadAll()).sort((a, b) => a.created - b.created); } catch { tapes = []; }
-    cue(false);
+    try { localTapes = (await loadAll()).sort((a, b) => a.created - b.created); } catch { localTapes = []; }
+    let note = null, justConnected = false;
+    try { justConnected = await spHandleRedirect(); } catch (e) { note = e.message; }
+    if (spConnected()) spTapes = ls.get('sp-tapes') || [];
+    rebuild(); cue(false);
+    if (note) openSheet(note);
+    if (spConnected()) {
+      try {
+        spTapes = await spLoadTapes(); rebuild(); cue(false);
+        if (justConnected) { tape = localTapes.length; track = 0; cue(false); openSheet('Spotify connected. Your playlists are now tapes. Keep the Spotify app open while you listen.'); }
+        else if (!$('sheet').hidden) renderList();
+      } catch (e) { if (e.code === 'AUTH') { spTapes = []; rebuild(); cue(false); } }
+      spPoll();
+    }
   })();
 })();
 </script>
