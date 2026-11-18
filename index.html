@@ -3,6 +3,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Cassette Player</title>
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Cassette">
 <meta name="theme-color" content="#1d2633">
@@ -11,7 +12,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@600;700&family=Playfair+Display:wght@600&family=Caveat:wght@600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@600;700&family=Playfair+Display:wght@600&family=Caveat:wght@600&family=Share+Tech+Mono&display=swap">
 <style>
 /* Layout: one portrait player body filling the screen. Blue shell on the left with the cassette window, silver control strip on the right with four orange buttons. Deliberately single-look (the player's own colors), so no dark theme. */
 :root {
@@ -34,7 +35,8 @@
   --hand: "Caveat", "Bradley Hand", cursive;
   color-scheme: dark;
 }
-html, body { height: 100%; }
+html, body { height: 100%; margin: 0; }
+html { background: var(--page); }
 body {
   background: var(--page);
   color: var(--silver);
@@ -43,6 +45,7 @@ body {
   padding-right: max(16px, env(safe-area-inset-right, 0px));
   padding-block: 12px;
   box-sizing: border-box;
+  overflow: hidden;
   -webkit-tap-highlight-color: transparent;
   user-select: none; -webkit-user-select: none;
 }
@@ -57,12 +60,25 @@ body {
   overflow: hidden;
   box-shadow: 0 20px 50px rgb(0 0 0 / .45);
 }
+/* On a phone the player IS the screen: edge to edge, under the status bar and home indicator. */
+@media (max-width: 600px), (display-mode: standalone) {
+  html, body { background: linear-gradient(90deg, var(--shell) 0 78%, var(--silver) 78%); }
+  body { padding: 0; display: block; }
+  .player {
+    width: 100vw; height: 100vh; height: 100dvh;
+    max-height: none; aspect-ratio: auto;
+    border-radius: 0; box-shadow: none;
+  }
+  .shell { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); box-sizing: border-box; }
+  .shell::before { top: calc(env(safe-area-inset-top, 0px) + 5%); }
+  .strip { padding-bottom: env(safe-area-inset-bottom, 0px); box-sizing: border-box; }
+}
 .shell {
   background: linear-gradient(180deg, var(--shell) 0%, #5676a0 60%, var(--shell-dark) 100%);
   border-right: 2px solid var(--shell-line);
   position: relative;
   display: grid;
-  grid-template-rows: 7% auto 1fr auto;
+  grid-template-rows: 7% auto 1fr auto auto;
   container-type: size;
   overflow: hidden;
 }
@@ -82,7 +98,7 @@ body {
 .bay { position: relative; display: flex; align-items: center; }
 .cassette {
   margin-left: 14cqw;
-  width: 46cqw; height: 52cqh; max-height: 100%;
+  width: 46cqw; height: 46cqh; max-height: 100%;
   display: grid; grid-template-columns: 30% 70%;
   border-radius: 2px;
   box-shadow: 0 6px 14px rgb(0 0 0 / .35);
@@ -159,12 +175,34 @@ body {
 .door {
   position: absolute; right: 0; top: 50%; transform: translateY(-50%);
   width: 24cqw; height: 22cqh;
-  background: linear-gradient(90deg, rgb(255 255 255 / .02), rgb(255 255 255 / .07));
   display: grid; place-items: center;
 }
-.door svg { width: 45%; }
+/* Arrow pressed into the shell itself: dark groove plus a light lower edge, no separate panel */
+.door svg { width: 42%; overflow: visible; transition: transform .3s; }
+.door .groove { stroke: rgb(20 35 55 / .55); }
+.door .lip { stroke: rgb(255 255 255 / .28); transform: translate(0, 1.4px); }
 .cassette.out ~ .door svg { transform: rotate(-90deg); transition: transform .3s; }
 
+/* Now-playing display: a small backlit LCD set into the shell */
+.lcd {
+  margin: 2.5cqh 8cqw 3cqh;
+  padding: 1.6cqh 4cqw;
+  border-radius: 6px;
+  background: linear-gradient(180deg, #1c2a22, #22352a);
+  box-shadow: inset 0 2px 4px rgb(0 0 0 / .55), 0 1px 0 rgb(255 255 255 / .18);
+  color: #9fe8b0;
+  font-family: "Share Tech Mono", ui-monospace, Menlo, monospace;
+  text-shadow: 0 0 6px rgb(120 255 160 / .35);
+  display: grid; gap: .6cqh;
+  min-width: 0;
+}
+.lcd-top { display: flex; justify-content: space-between; gap: 3cqw; font-size: 3.6cqw; letter-spacing: .08em; opacity: .75; text-transform: uppercase; }
+.lcd-top span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.lcd-title { overflow: hidden; white-space: nowrap; font-size: 5.6cqw; line-height: 1.35; }
+.lcd-title span { display: inline-block; padding-right: 2em; }
+.lcd-title.scroll span { animation: marquee var(--marquee-dur, 10s) linear infinite; }
+@keyframes marquee { 0%, 12% { transform: translateX(0); } 100% { transform: translateX(var(--marquee-shift, -50%)); } }
+@media (prefers-reduced-motion: reduce) { .lcd-title.scroll span { animation: none; } .lcd-title { text-overflow: ellipsis; } }
 .wordmark {
   font-family: var(--round);
   font-weight: 700;
@@ -239,6 +277,8 @@ body {
 .tapes .t b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tapes .t small { color: #9aa6b5; }
 .tapes button { padding: 6px 10px; font-size: 14px; background: #3a4556; color: #ffb38a; }
+.note { margin: 0; padding: 10px 12px; border-radius: 10px; background: rgb(240 138 36 / .15); color: #ffc58a; font-size: 14px; }
+.note[hidden] { display: none; }
 .hint { margin: 0; font-size: 13px; color: #9aa6b5; }
 </style>
 
@@ -248,7 +288,7 @@ body {
     <div class="brand">CASSETTE</div>
     <div class="bay">
       <div class="cassette" id="cassette" role="button" tabindex="0" aria-label="Manage tapes">
-        <div class="label"><span id="tape-name">No tape</span><small id="track-name">Tap to add songs</small></div>
+        <div class="label"><span id="tape-name">No tape</span></div>
         <div class="body">
           <div class="reel"><i></i><i></i><i></i><i></i><i></i><i></i></div>
           <div class="window"></div>
@@ -256,10 +296,15 @@ body {
         </div>
       </div>
       <div class="door" aria-hidden="true">
-        <svg viewBox="0 0 40 60" fill="none" stroke="#e4ecf6" stroke-width="2.2" stroke-linejoin="round">
-          <path d="M20 4 L36 24 H27 V56 H13 V24 H4 Z" fill="rgb(255 255 255 / .06)"/>
+        <svg viewBox="0 0 40 60" fill="none" stroke-width="2.4" stroke-linejoin="round">
+          <path class="lip" d="M20 4 L36 24 H27 V56 H13 V24 H4 Z"/>
+          <path class="groove" d="M20 4 L36 24 H27 V56 H13 V24 H4 Z"/>
         </svg>
       </div>
+    </div>
+    <div class="lcd" aria-live="polite">
+      <div class="lcd-top"><span id="lcd-tape">NO TAPE</span><span id="lcd-count"></span></div>
+      <div class="lcd-title"><span id="track-name">Tap the tape to add songs</span></div>
     </div>
     <div class="wordmark">STEREO</div>
   </section>
@@ -287,6 +332,7 @@ body {
 <div class="sheet" id="sheet" hidden>
   <div class="panel" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
     <h2 id="sheet-title">Your tapes</h2>
+    <p class="note" id="sheet-note" hidden></p>
     <ul class="tapes" id="tape-list"></ul>
     <label for="new-name">New tape name</label>
     <input id="new-name" type="text" placeholder="e.g. Night drive" autocomplete="off">
@@ -332,8 +378,25 @@ body {
     const t = tapes[tape], s = cur();
     cassette.classList.toggle('empty', !t);
     tapeName.textContent = t ? t.name : 'No tape';
-    trackName.textContent = s ? (track + 1) + ' · ' + s.name : 'Tap to add songs';
+    $('lcd-tape').textContent = t ? t.name : 'No tape';
+    $('lcd-count').textContent = t ? (track + 1) + '/' + t.tracks.length : '';
+    setTitle(s ? s.name : 'Tap the tape to add songs');
     status.textContent = s ? (audio.paused ? 'Paused ' : 'Playing ') + s.name : 'No tape loaded';
+  }
+  function setTitle(text) {  // scroll long titles across the LCD so the whole name can be read
+    const box = trackName.parentElement;
+    if (trackName.textContent === text && box.dataset.done) return;
+    trackName.textContent = text;
+    box.classList.remove('scroll');
+    requestAnimationFrame(() => {
+      const over = trackName.scrollWidth - parseFloat(getComputedStyle(trackName).paddingRight) - box.clientWidth;
+      if (over > 2) {
+        box.style.setProperty('--marquee-shift', -over - 16 + 'px');
+        box.style.setProperty('--marquee-dur', Math.max(5, over / 30) + 's');
+        box.classList.add('scroll');
+      }
+      box.dataset.done = '1';
+    });
   }
   function show(playing) {
     cassette.classList.toggle('playing', playing);
@@ -385,12 +448,19 @@ body {
   $('rew').addEventListener('click', prev);
   $('eject').addEventListener('click', async () => {
     if (busy) return;
-    if (tapes.length < 2) { if (!tapes.length) openSheet(); return; }
+    if (!tapes.length) { openSheet(); return; }
     busy = true;
     const wasPlaying = !audio.paused;
     audio.pause();
     cassette.classList.add('out');
     await new Promise(r => setTimeout(r, 550));
+    if (tapes.length < 2) {  // only one tape: put it back and offer to add another
+      cassette.classList.remove('out');
+      await new Promise(r => setTimeout(r, 500));
+      busy = false;
+      openSheet('Add another tape so eject can switch between them.');
+      return;
+    }
     tape = (tape + 1) % tapes.length; track = 0;
     cue(false);
     cassette.classList.remove('out');
@@ -400,7 +470,12 @@ body {
   });
 
   /* ---------- tape manager sheet ---------- */
-  function openSheet() { renderList(); $('sheet').hidden = false; }
+  function openSheet(note) {
+    renderList();
+    $('sheet-note').textContent = note || '';
+    $('sheet-note').hidden = !note;
+    $('sheet').hidden = false;
+  }
   function closeSheet() { $('sheet').hidden = true; }
   cassette.addEventListener('click', () => { if (!busy) openSheet(); });
   cassette.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openSheet(); } });
