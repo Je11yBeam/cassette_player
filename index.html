@@ -62,10 +62,13 @@ body {
 }
 /* On a phone the player IS the screen: edge to edge, under the status bar and home indicator. */
 @media (max-width: 600px), (display-mode: standalone) {
-  html, body { background: linear-gradient(90deg, var(--shell) 0 78%, var(--silver) 78%); }
+  /* --app-h is set by script: in the iPhone home-screen app, 100vh/100dvh stop short of the
+     bottom edge (they leave out the status bar), which left a black band. The script uses the
+     real screen height there. */
+  html, body { height: var(--app-h, 100%); background: linear-gradient(90deg, var(--shell) 0 78%, var(--silver) 78%); }
   body { padding: 0; display: block; }
   .player {
-    width: 100vw; height: 100vh; height: 100dvh;
+    width: 100vw; height: 100vh; height: 100dvh; height: var(--app-h, 100dvh);
     max-height: none; aspect-ratio: auto;
     border-radius: 0; box-shadow: none;
   }
@@ -389,6 +392,22 @@ body {
   </div>
 </div>
 
+<script>
+/* Fill the whole screen in the iPhone home-screen app (see --app-h in the CSS) */
+(() => {
+  const ios = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const standalone = navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
+  function fit() {
+    if (!(ios && standalone)) { document.documentElement.style.removeProperty('--app-h'); return; }
+    const portrait = matchMedia('(orientation: portrait)').matches;
+    const h = portrait ? Math.max(screen.height, screen.width) : Math.min(screen.height, screen.width);
+    document.documentElement.style.setProperty('--app-h', Math.max(h, innerHeight) + 'px');
+  }
+  fit();
+  addEventListener('resize', fit);
+  addEventListener('orientationchange', () => setTimeout(fit, 300));
+})();
+</script>
 <script>
 /* Spotify app Client ID from developer.spotify.com/dashboard. It is not a secret. */
 const SPOTIFY_CLIENT_ID = '8e2be62767214fab8a5795b815f6a531';
