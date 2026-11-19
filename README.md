@@ -12,6 +12,12 @@ The whole app is a single file, `index.html`. It needs no server, and songs are 
 4. ปุ่ม ▶︎ เล่น/หยุด, ⏩ เพลงถัดไป, ⏪ เพลงก่อนหน้า และปุ่มส้ม ⏏ เปลี่ยนเทป
 5. ถ้าจะลบเทป ให้แตะที่ม้วนเทป กด Remove แล้วกดอีกครั้งเพื่อยืนยัน
 
+## เพิ่ม playlist จาก YouTube / YouTube Music
+1. เปิด playlist ในแอป YouTube Music หรือ YouTube แล้วกด Share > **Copy link**
+2. playlist ต้องตั้งค่าเป็น **Public** หรือ **Unlisted** ถ้าเป็น Private จะเล่นไม่ได้
+3. ในแอป Cassette แตะที่ม้วนเทป พิมพ์ชื่อเทป แล้ววางลิงก์ในช่อง YouTube กด **Add**
+4. วิดีโอจะขึ้นในจอเล็กใต้ม้วนเทป เพราะเงื่อนไขของ YouTube กำหนดให้ต้องเห็น player ส่วนเพลงจาก YouTube จะหยุดเมื่อล็อกจอ
+
 ## เผยแพร่ด้วย GitHub Pages (ฟรี)
 1. ใส่ไฟล์ `index.html` ไว้ที่ root ของ repo
 2. ไปที่ Settings > Pages > Source แล้วเลือก **Deploy from a branch** > `main` / `(root)`

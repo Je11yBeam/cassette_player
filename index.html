@@ -78,7 +78,7 @@ body {
   border-right: 2px solid var(--shell-line);
   position: relative;
   display: grid;
-  grid-template-rows: 7% auto 1fr auto auto;
+  grid-template-rows: 7% auto 1fr auto auto auto;
   container-type: size;
   overflow: hidden;
 }
@@ -203,6 +203,16 @@ body {
 .lcd-title.scroll span { animation: marquee var(--marquee-dur, 10s) linear infinite; }
 @keyframes marquee { 0%, 12% { transform: translateX(0); } 100% { transform: translateX(var(--marquee-shift, -50%)); } }
 @media (prefers-reduced-motion: reduce) { .lcd-title.scroll span { animation: none; } .lcd-title { text-overflow: ellipsis; } }
+/* YouTube's player has to stay visible (at least 200x200), so YouTube tapes get a small screen */
+.screen {
+  margin: 1.5cqh 8cqw 0;
+  height: 200px; min-width: 200px;
+  border-radius: 6px; overflow: hidden; background: #0d1117;
+  box-shadow: inset 0 0 0 2px var(--shell-line), 0 1px 0 rgb(255 255 255 / .18);
+}
+.screen[hidden] { display: none; }
+.screen > *, .screen iframe { width: 100%; height: 100%; display: block; border: 0; }
+.shell.video .cassette { height: 28cqh; }
 .wordmark {
   font-family: var(--round);
   font-weight: 700;
@@ -265,7 +275,7 @@ body {
 }
 .panel h2 { margin: 0; font-size: 18px; }
 .panel label { font-size: 14px; color: var(--silver-hi); }
-.panel input[type=text] { font: inherit; padding: 11px 12px; border-radius: 10px; border: 1px solid #4a5566; background: #161d27; color: #fff; width: 100%; box-sizing: border-box; }
+.panel input[type=text], .panel input[type=url] { font: inherit; padding: 11px 12px; border-radius: 10px; border: 1px solid #4a5566; background: #161d27; color: #fff; width: 100%; box-sizing: border-box; }
 .panel .row { display: flex; gap: 10px; }
 .panel button { font: inherit; padding: 12px 14px; border: 0; border-radius: 10px; cursor: pointer; }
 .primary { background: var(--orange); color: #fff; font-weight: 600; flex: 1; }
@@ -285,6 +295,8 @@ body {
 .sp-btn.off { background: #3a4556; color: #e8edf3; font-weight: 400; }
 .sp-btn[hidden] { display: none; }
 .tapes small.sp { color: #6fdc95; }
+.tapes small.yt { color: #ff8a8a; }
+.panel .row input { flex: 1; min-width: 0; }
 .note a { color: #fff; font-weight: 600; }
 .note { margin: 0; padding: 10px 12px; border-radius: 10px; background: rgb(240 138 36 / .15); color: #ffc58a; font-size: 14px; }
 .note[hidden] { display: none; }
@@ -311,6 +323,7 @@ body {
         </svg>
       </div>
     </div>
+    <div class="screen" id="yt-screen" hidden><div id="yt-player"></div></div>
     <div class="lcd" aria-live="polite">
       <div class="lcd-top"><span id="lcd-tape">NO TAPE</span><span id="lcd-count"></span></div>
       <div class="lcd-title"><span id="track-name">Tap the tape to add songs</span></div>
@@ -355,6 +368,12 @@ body {
       <button class="ghost" id="close">Close</button>
     </div>
     <p class="hint">Songs are saved on this phone only. Pick several files at once to make one tape. Songs play in file-name order.</p>
+    <label for="yt-link">YouTube or YouTube Music playlist link</label>
+    <div class="row">
+      <input id="yt-link" type="url" inputmode="url" placeholder="https://music.youtube.com/playlist?list=…" autocomplete="off">
+      <button class="ghost" id="yt-add">Add</button>
+    </div>
+    <p class="hint">The playlist must be Public or Unlisted. The tape takes its name from “New tape name” above.</p>
   </div>
 </div>
 
@@ -516,13 +535,76 @@ const SPOTIFY_CLIENT_ID = '8e2be62767214fab8a5795b815f6a531';
     }
   }
 
+  /* ---------- YouTube / YouTube Music: playlists played by YouTube's own player ---------- */
+  let ytTapes = ls.get('yt-tapes') || [];
+  const yt = { player: null, ready: false, loading: null, playing: false, title: '', author: '', index: 0, total: 0, list: null, error: '' };
+  function ytLoad() {
+    return yt.loading ||= new Promise((res, rej) => {
+      window.onYouTubeIframeAPIReady = () => {
+        yt.player = new YT.Player('yt-player', {
+          width: '100%', height: '100%',
+          playerVars: { playsinline: 1, rel: 0 },
+          events: {
+            onReady: () => { yt.ready = true; res(); },
+            onStateChange: e => ytUpdate(e.data),
+            onError: e => {
+              if (e.data === 101 || e.data === 150) { yt.player.nextVideo(); return; }  // owner blocked embedding: skip it
+              yt.error = 'This playlist is private or unavailable';
+              yt.playing = false; if (isYt()) show(false);
+            },
+          },
+        });
+      };
+      const sc = document.createElement('script');
+      sc.src = 'https://www.youtube.com/iframe_api';
+      sc.onerror = () => { yt.loading = null; rej(new Error('Could not reach YouTube')); };
+      document.head.append(sc);
+    });
+  }
+  function ytUpdate(state) {
+    if (state === YT.PlayerState.PLAYING) { yt.playing = true; yt.error = ''; }
+    else if ([YT.PlayerState.PAUSED, YT.PlayerState.ENDED, YT.PlayerState.CUED].includes(state)) yt.playing = false;
+    const d = (yt.player.getVideoData && yt.player.getVideoData()) || {};
+    yt.title = d.title || ''; yt.author = (d.author || '').replace(/ - Topic$/, '');
+    const pl = yt.player.getPlaylist && yt.player.getPlaylist();
+    yt.total = pl ? pl.length : 0;
+    yt.index = (yt.player.getPlaylistIndex && yt.player.getPlaylistIndex()) || 0;
+    if (isYt()) show(yt.playing);
+  }
+  async function ytCue(t, autoplay) {
+    await ytLoad();
+    if (yt.list !== t.list) {
+      yt.list = t.list; yt.title = ''; yt.total = 0; yt.error = '';
+      const args = { list: t.list, listType: 'playlist', index: 0 };
+      autoplay ? yt.player.loadPlaylist(args) : yt.player.cuePlaylist(args);
+    } else if (autoplay) yt.player.playVideo();
+  }
+  function ytStop() { if (yt.ready) yt.player.pauseVideo(); }
+  function parseList(text) {
+    text = text.trim();
+    try { return new URL(text).searchParams.get('list'); }
+    catch { return /^[A-Za-z0-9_-]{12,}$/.test(text) ? text : null; }
+  }
+
   /* ---------- player ---------- */
   const isSp = () => !!(tapes[tape] && tapes[tape].kind === 'spotify');
-  const cur = () => !isSp() && tapes[tape] && tapes[tape].tracks[track];
-  const isPlaying = () => isSp() ? sp.playing : !audio.paused;
-  function rebuild() { tapes = [...localTapes, ...spTapes]; if (tape >= tapes.length) tape = 0; }
+  const isYt = () => !!(tapes[tape] && tapes[tape].kind === 'youtube');
+  const cur = () => !isSp() && !isYt() && tapes[tape] && tapes[tape].tracks[track];
+  const isPlaying = () => isSp() ? sp.playing : isYt() ? yt.playing : !audio.paused;
+  function rebuild() { tapes = [...localTapes, ...spTapes, ...ytTapes]; if (tape >= tapes.length) tape = 0; }
   function render() {
     const t = tapes[tape], s = cur();
+    $('yt-screen').hidden = !isYt();
+    $('yt-screen').parentElement.classList.toggle('video', isYt());
+    if (isYt()) {
+      const here = yt.list === t.list;
+      cassette.classList.remove('empty');
+      tapeName.textContent = t.name; $('lcd-tape').textContent = t.name;
+      $('lcd-count').textContent = here && yt.total && !yt.error ? (yt.index + 1) + '/' + yt.total : 'YOUTUBE';
+      setTitle(here && yt.error ? yt.error : here && yt.title ? yt.title + (yt.author ? ' · ' + yt.author : '') : 'Press play');
+      status.textContent = (yt.playing ? 'Playing ' : 'Paused ') + t.name + ' on YouTube';
+      return;
+    }
     cassette.classList.toggle('empty', !t);
     tapeName.textContent = t ? t.name : 'No tape';
     $('lcd-tape').textContent = t ? t.name : 'No tape';
@@ -560,6 +642,13 @@ const SPOTIFY_CLIENT_ID = '8e2be62767214fab8a5795b815f6a531';
   function cue(autoplay) {
     const s = cur();
     if (url) { URL.revokeObjectURL(url); url = null; }
+    if (isYt()) {
+      const t = tapes[tape];
+      audio.removeAttribute('src');
+      show(yt.playing && yt.list === t.list);
+      ytCue(t, autoplay).catch(e => setTitle(e.message));
+      return;
+    }
     if (!s) { audio.removeAttribute('src'); audio.load(); show(isSp() && sp.playing && sp.context === tapes[tape].uri); return; }
     url = URL.createObjectURL(s.blob);
     audio.src = url;
@@ -574,6 +663,7 @@ const SPOTIFY_CLIENT_ID = '8e2be62767214fab8a5795b815f6a531';
     const t = tapes[tape]; if (!t || busy) return;
     whirr(cls);
     if (isSp()) { spSkip(dir).catch(spError); return; }
+    if (isYt()) { if (yt.ready && yt.list === t.list) dir > 0 ? yt.player.nextVideo() : yt.player.previousVideo(); return; }
     const playing = !audio.paused;
     track = (track + dir + t.tracks.length) % t.tracks.length;
     cue(playing);
@@ -583,11 +673,17 @@ const SPOTIFY_CLIENT_ID = '8e2be62767214fab8a5795b815f6a531';
     if (busy) return;
     if (!tapes[tape]) return openSheet();
     if (isSp()) { (sp.playing ? spPause() : spPlay(tapes[tape])).catch(spError); return; }
+    if (isYt()) {  // playVideo must run inside the tap for iPhone to allow sound
+      const t = tapes[tape];
+      if (yt.ready && yt.list === t.list) yt.playing ? yt.player.pauseVideo() : yt.player.playVideo();
+      else ytCue(t, true).catch(e => setTitle(e.message));
+      return;
+    }
     audio.paused ? audio.play().catch(() => {}) : audio.pause();
   }
 
   audio.addEventListener('play', () => show(true));
-  audio.addEventListener('pause', () => { if (!isSp()) show(false); });
+  audio.addEventListener('pause', () => { if (!isSp() && !isYt()) show(false); });
   audio.addEventListener('ended', () => {
     const t = tapes[tape];
     if (track < t.tracks.length - 1) { track++; cue(true); }
@@ -607,7 +703,7 @@ const SPOTIFY_CLIENT_ID = '8e2be62767214fab8a5795b815f6a531';
     if (!tapes.length) { openSheet(); return; }
     busy = true;
     const wasPlaying = isPlaying(), wasSp = isSp();
-    audio.pause();
+    audio.pause(); ytStop();
     cassette.classList.add('out');
     await wait(550);
     if (tapes.length < 2) {  // only one tape: put it back and offer to add another
@@ -623,8 +719,10 @@ const SPOTIFY_CLIENT_ID = '8e2be62767214fab8a5795b815f6a531';
     await wait(500);
     busy = false;
     if (wasPlaying) {
+      if (wasSp && !isSp()) spPause().catch(() => {});
       if (isSp()) spPlay(tapes[tape], true).catch(spError);
-      else { if (wasSp) spPause().catch(() => {}); audio.play().catch(() => {}); }
+      else if (isYt()) ytCue(tapes[tape], true).catch(e => setTitle(e.message));
+      else audio.play().catch(() => {});
     }
   });
 
@@ -662,25 +760,26 @@ const SPOTIFY_CLIENT_ID = '8e2be62767214fab8a5795b815f6a531';
   function renderList() {
     renderSp();
     const ul = $('tape-list'); ul.textContent = '';
-    if (!tapes.length) { const li = document.createElement('li'); li.textContent = 'No tapes yet. Choose songs or connect Spotify to make your first one.'; ul.append(li); return; }
+    if (!tapes.length) { const li = document.createElement('li'); li.textContent = 'No tapes yet. Choose songs, connect Spotify, or add a YouTube playlist to make your first one.'; ul.append(li); return; }
     tapes.forEach((t, i) => {
       const li = document.createElement('li'); if (i === tape) li.className = 'current';
       const d = document.createElement('div'); d.className = 't';
       const b = document.createElement('b'); b.textContent = t.name;
       const sm = document.createElement('small');
       if (t.kind === 'spotify') { sm.className = 'sp'; sm.textContent = 'Spotify · ' + t.total + ' songs'; }
+      else if (t.kind === 'youtube') { sm.className = 'yt'; sm.textContent = 'YouTube playlist'; }
       else sm.textContent = t.tracks.length + ' songs';
       d.append(b, sm);
       d.style.cursor = 'pointer';
-      d.addEventListener('click', () => { if (busy) return; if (isSp() && sp.playing) spPause().catch(() => {}); audio.pause(); tape = i; track = 0; cue(false); closeSheet(); });
+      d.addEventListener('click', () => { if (busy) return; if (isSp() && sp.playing) spPause().catch(() => {}); audio.pause(); ytStop(); tape = i; track = 0; cue(false); closeSheet(); });
       li.append(d);
       if (t.kind !== 'spotify') {
         const del = document.createElement('button'); del.textContent = 'Remove';
         del.setAttribute('aria-label', 'Remove ' + t.name);
         del.addEventListener('click', async () => {
           if (del.dataset.armed !== '1') { del.dataset.armed = '1'; del.textContent = 'Tap again'; return; }
-          await remove(t.id);
-          localTapes = localTapes.filter(x => x.id !== t.id);
+          if (t.kind === 'youtube') { ytTapes = ytTapes.filter(x => x.id !== t.id); ls.set('yt-tapes', ytTapes); if (yt.list === t.list) { ytStop(); yt.list = null; } }
+          else { await remove(t.id); localTapes = localTapes.filter(x => x.id !== t.id); }
           const removingCurrent = i === tape;
           rebuild();
           if (removingCurrent) { tape = 0; track = 0; audio.pause(); cue(false); } else if (i < tape) tape--;
@@ -691,6 +790,19 @@ const SPOTIFY_CLIENT_ID = '8e2be62767214fab8a5795b815f6a531';
       ul.append(li);
     });
   }
+
+  $('yt-add').addEventListener('click', () => {
+    const list = parseList($('yt-link').value);
+    if (!list) { openSheet('That doesn’t look like a playlist link. On the playlist page tap Share > Copy link, then paste it here.'); return; }
+    if (ytTapes.some(x => x.list === list)) { openSheet('That playlist is already a tape.'); return; }
+    const t = { kind: 'youtube', id: 'yt-' + Date.now().toString(36), list, name: $('new-name').value.trim() || 'YouTube ' + (ytTapes.length + 1), created: Date.now() };
+    ytTapes.push(t); ls.set('yt-tapes', ytTapes);
+    $('yt-link').value = ''; $('new-name').value = '';
+    if (isSp() && sp.playing) spPause().catch(() => {});
+    audio.pause(); ytStop();
+    rebuild(); tape = tapes.length - 1; track = 0; cue(false);
+    openSheet('Added. Close this and press play.');
+  });
 
   $('files').addEventListener('change', async e => {
     const files = [...e.target.files].filter(f => f.type.startsWith('audio/') || /\.(mp3|m4a|aac|wav|flac|ogg)$/i.test(f.name));
@@ -706,7 +818,7 @@ const SPOTIFY_CLIENT_ID = '8e2be62767214fab8a5795b815f6a531';
     try { await save(t); } catch (err) { $('sheet-title').textContent = 'Could not save. The phone may be out of space.'; return; }
     localTapes.push(t); $('new-name').value = '';
     rebuild();
-    tape = localTapes.length - 1; track = 0; audio.pause(); cue(false);
+    tape = localTapes.length - 1; track = 0; audio.pause(); ytStop(); cue(false);
     renderList();
   });
 
