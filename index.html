@@ -78,7 +78,7 @@ body {
   border-right: 2px solid var(--shell-line);
   position: relative;
   display: grid;
-  grid-template-rows: 7% auto 1fr auto auto auto;
+  grid-template-rows: 7% auto minmax(0, 1fr) auto auto auto;
   container-type: size;
   overflow: hidden;
 }
@@ -95,10 +95,12 @@ body {
   text-shadow: 0 1px 0 rgb(0 0 0 / .35), 0 -1px 0 rgb(255 255 255 / .25);
   margin: 4cqh 0 0 8cqw;
 }
-.bay { position: relative; display: flex; align-items: center; }
+/* The bay is its own size container, so the tape scales to whatever room is left on this phone */
+.bay { position: relative; display: flex; align-items: center; min-height: 0; container-type: size; }
 .cassette {
   margin-left: 14cqw;
-  width: 46cqw; height: 46cqh; max-height: 100%;
+  /* Keep the tape's real proportions (1:2) and fit it to the bay: up to 52% of the width, smaller if the bay is short */
+  height: min(92cqh, 104cqw); aspect-ratio: 1 / 2; width: auto;
   display: grid; grid-template-columns: 30% 70%;
   border-radius: 2px;
   box-shadow: 0 6px 14px rgb(0 0 0 / .35);
@@ -212,7 +214,15 @@ body {
 }
 .screen[hidden] { display: none; }
 .screen > *, .screen iframe { width: 100%; height: 100%; display: block; border: 0; }
-.shell.video .cassette { height: 28cqh; }
+/* Phone turned sideways: the player is built for portrait, so ask to turn it back */
+.rotate { display: none; }
+@media (orientation: landscape) and (max-height: 500px) {
+  .rotate {
+    display: grid; place-items: center; position: fixed; inset: 0; z-index: 30;
+    background: var(--page); color: var(--silver-hi);
+    font: 600 18px/1.4 system-ui, -apple-system, sans-serif; text-align: center; padding: 24px;
+  }
+}
 .wordmark {
   font-family: var(--round);
   font-weight: 700;
@@ -348,6 +358,8 @@ body {
   </section>
   <p class="status" id="status" aria-live="polite">Stopped</p>
 </main>
+
+<div class="rotate" aria-hidden="true">Turn your phone upright to use the player</div>
 
 <audio id="audio" preload="auto" playsinline></audio>
 
